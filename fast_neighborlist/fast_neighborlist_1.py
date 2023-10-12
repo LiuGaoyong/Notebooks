@@ -63,6 +63,7 @@ class FastPrimitiveNeighborList(PrimitiveNeighborList):
 
         self._cache = {
             'positions': positions,
+            'N': N,
             'n123': n123,
             'tree': tree,
             'kk_pos': kk_pos,
