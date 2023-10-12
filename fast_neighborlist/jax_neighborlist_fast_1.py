@@ -7,7 +7,7 @@ from ase.atoms import Atoms
 from ase.geometry import (minkowski_reduce,
                           wrap_positions)
 
-from ase_neighborlist import _get_cutoffs, ijS_Data
+from ase_neighborlist import _get_cutoffs
 
 
 def _nb_prepare(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
@@ -72,6 +72,14 @@ def nb_jax(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
         )(ij_arr, ij_arr, kk_arr, cutoffs, pos, n123, rcell)
         return result
 
+    @jax.jit
+    def kij2ijS(k, i, j, n123, offsets):
+        S = n123[k] @ r_op + offsets[i] - offsets[j]
+        ijS = jnp.row_stack([
+            jnp.column_stack([i, j, S]),
+            jnp.column_stack([j, i, -S])])
+        return ijS
+
     k, i, j = jnp.where(f(r_cutoffs, pos_mkwsk, n123, rcell))
     self_interaction = jnp.logical_and(
         (n123[k] == 0).all(1), i == j)
@@ -79,13 +87,9 @@ def nb_jax(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
     kij = kij[~self_interaction]
     k, i, j = kij.T
 
-    S = n123[k] @ r_op + offsets[i] - offsets[j]
-    ijS = jnp.row_stack([
-        jnp.column_stack([i, j, S]),
-        jnp.column_stack([j, i, -S])])
-
-    ijS = [ijS_Data(int(x[0]), int(x[1]),
-                    x[2:].tolist())
+    ijS = kij2ijS(k, i, j, n123, offsets)
+    ijS = [tuple([int(x[0]), int(x[1])]
+                 + x[2:].tolist())
            for x in ijS]
     return sorted(set(ijS))
 
