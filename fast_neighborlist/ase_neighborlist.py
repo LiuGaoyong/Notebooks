@@ -41,9 +41,8 @@ def nb_3loop(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
         'ijSdD', atoms.pbc, atoms.cell, atoms.positions,
         cutoff=r_cutoffs, self_interaction=False,
         use_scaled_positions=False)
-    ijS = [tuple([i[ii], j[ii]] + S[ii].tolist())
-           for ii in range(len(S))]
-    return sorted(set(ijS))
+    ijS = np.column_stack([i, j, S])
+    return np.unique(ijS, axis=0)
 
 
 def nb_kdtree(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
@@ -57,7 +56,8 @@ def nb_kdtree(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
         nb, disp = nl.get_neighbors(i)
         for ii in range(len(nb)):
             ijS.append(tuple([i, nb[ii]] + disp[ii].tolist()))
-    return sorted(set(ijS))
+    np.asarray(ijS, dtype=int)
+    return np.unique(ijS, axis=0)
 
 
 def nb_kdtree_out(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
@@ -71,7 +71,8 @@ def nb_kdtree_out(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
         nb, disp = nl.get_neighbors(i)
         for ii in range(len(nb)):
             ijS.append(tuple([i, nb[ii]] + disp[ii].tolist()))
-    return sorted(set(ijS))
+    np.asarray(ijS, dtype=int)
+    return np.unique(ijS, axis=0)
 
 
 if __name__ == '__main__':
@@ -97,5 +98,5 @@ if __name__ == '__main__':
           "  kdtree in loop     time_2: {:8.3f} s\n".format(c-b),
           "  kdtree out loop    time_2: {:8.3f} s\n".format(d-c),)
 
-    assert set(ijS_1) == set(ijS_2)
-    assert set(ijS_1) == set(ijS_3)
+    assert np.allclose(ijS_1, ijS_2)
+    assert np.allclose(ijS_1, ijS_3)

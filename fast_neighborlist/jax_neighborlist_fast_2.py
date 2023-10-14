@@ -1,24 +1,13 @@
-import os
 import itertools
 from typing import List, Union
 
-import jax
 import jax.numpy as jnp
 from ase.atoms import Atoms
 from ase.geometry import (minkowski_reduce,
                           wrap_positions)
+from scipy.spatial import cKDTree
 
 from ase_neighborlist import _get_cutoffs
-
-
-DEFAULT_PLATFORM = 'cpu'
-DEFAULT_CORE_NUM = os.cpu_count()
-
-jax.config.update("jax_enable_x64", True)
-jax.config.update('jax_platform_name', DEFAULT_PLATFORM)
-os.environ['XLA_FLAGS'] = '--{:s}={:d}'.format(
-    "xla_force_host_platform_device_count",
-    DEFAULT_CORE_NUM)
 
 
 def _nb_prepare(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
@@ -57,49 +46,37 @@ def nb_jax(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
     rcell, r_op, offsets, n123, pos_mkwsk, r_cutoffs = _nb_prepare(
         atoms=atoms, r_cutoffs=r_cutoffs)
 
-    @jax.jit
-    def _f(i, j, kk, cutoffs, pos, n123, rcell):
-        disp = n123[kk] @ rcell
-        delta = pos[i] - (pos[j] + disp)
-        cutoff = cutoffs[i] + cutoffs[j]
-        d = jnp.linalg.norm(delta)
-        is_nb = d <= cutoff
-        return is_nb
+    disp = jnp.asarray(n123) @ rcell
+    kk_pos = (pos_mkwsk[:, None] - disp).reshape(-1, 3)
 
-    @jax.jit
-    def f(cutoffs, pos, n123, rcell):
-        cutoffs = jnp.asarray(cutoffs, dtype=float)
-        rcell = jnp.asarray(rcell, dtype=float)
-        pos = jnp.asarray(pos, dtype=float)
-        n123 = jnp.asarray(n123, dtype=int)
+    tree = cKDTree(pos_mkwsk, copy_data=False)
+    kk_indices = tree.query_ball_point(
+        kk_pos, jnp.max(r_cutoffs)*2, workers=-1)
 
-        ij_arr = jnp.arange(pos.shape[0])
-        kk_arr = jnp.arange(n123.shape[0])
+    natoms = len(pos_mkwsk)
+    i, kk = jnp.asarray([(i, kk)
+                         for kk, i_list in enumerate(kk_indices)
+                         for i in i_list], dtype=int).T
+    j, k = kk % natoms, kk // natoms
 
-        result = jax.vmap(jax.vmap(jax.vmap(
-            _f, in_axes=(0, None, None, None, None, None, None)
-        ), in_axes=(None, 0, None, None, None, None, None)
-        ), in_axes=(None, None, 0, None, None, None, None)
-        )(ij_arr, ij_arr, kk_arr, cutoffs, pos, n123, rcell)
-        return result
+    # assert jnp.allclose(pos_mkwsk[j] - disp[k], kk_pos[kk])
+    cutoff = r_cutoffs[i] + r_cutoffs[j]
+    delta = pos_mkwsk[i] - kk_pos[kk]
+    d = jnp.linalg.norm(delta, axis=1)
 
-    @jax.jit
-    def kij2ijS(k, i, j, n123, offsets):
-        S = n123[k] @ r_op + offsets[i] - offsets[j]
-        ijS = jnp.row_stack([
-            jnp.column_stack([i, j, S]),
-            jnp.column_stack([j, i, -S])])
-        return ijS
-
-    tmp = f(r_cutoffs, pos_mkwsk, n123, rcell)
-    k, i, j = jnp.where(tmp)
-    self_interaction = jnp.logical_and(
-        (n123[k] == 0).all(1), i == j)
+    cond = jnp.logical_and(
+        d < cutoff,
+        jnp.logical_not(
+            jnp.logical_and(
+                (n123[k] == 0).all(1),
+                i == j)))
     kij = jnp.column_stack([k, i, j])
-    kij = kij[~self_interaction]
-    k, i, j = kij.T
+    k, i, j = kij[cond].T
 
-    ijS = kij2ijS(k, i, j, n123, offsets)
+    S = n123[k] @ r_op + offsets[i] - offsets[j]
+    ijS = jnp.row_stack([
+        jnp.column_stack([i, j, S]),
+        jnp.column_stack([j, i, -S])])
     return jnp.unique(ijS, axis=0)
 
 
@@ -123,7 +100,7 @@ if __name__ == '__main__':
     print(f"Time:\n",
           "  3loop          time_1: {:8.3f} s\n".format(b-a),
           "  kdtree+loop    time_2: {:8.3f} s\n".format(d-c),
-          "  all+jax        time_2: {:8.3f} s\n".format(c-b),)
+          "  kdtree+jax     time_2: {:8.3f} s\n".format(c-b),)
     print("================================")
 
     assert jnp.allclose(ijS_1, ijS_2)
