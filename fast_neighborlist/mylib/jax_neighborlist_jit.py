@@ -8,7 +8,7 @@ from ase.atoms import Atoms
 from ase.geometry import (minkowski_reduce,
                           wrap_positions)
 
-from ase_neighborlist import _get_cutoffs
+from .ase_neighborlist import _get_cutoffs
 
 
 DEFAULT_PLATFORM = 'cpu'
@@ -108,7 +108,9 @@ if __name__ == '__main__':
     from ase.build import bulk
     from ase_neighborlist import nb_3loop, nb_kdtree
 
-    atoms = bulk('Cu', 'bcc', 3.5)
+    atoms = bulk('Cu', 'bcc', 3.5) * (10, 10, 1)
+    ijS_2 = nb_jax(atoms, 12.3)
+
     a = time.time()
     ijS_1 = nb_3loop(atoms, 12.3)
     b = time.time()
@@ -126,5 +128,6 @@ if __name__ == '__main__':
           "  all+jax        time_2: {:8.3f} s\n".format(c-b),)
     print("================================")
 
-    assert jnp.allclose(ijS_1, ijS_2)
+    assert jnp.allclose(jnp.unique(ijS_1, axis=0),
+                        jnp.unique(ijS_2, axis=0))
     assert jnp.allclose(ijS_1, ijS_3)

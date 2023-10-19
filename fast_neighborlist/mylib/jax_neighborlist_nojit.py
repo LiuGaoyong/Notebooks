@@ -7,7 +7,7 @@ from ase.geometry import (minkowski_reduce,
                           wrap_positions)
 from scipy.spatial import cKDTree
 
-from ase_neighborlist import _get_cutoffs
+from .ase_neighborlist import _get_cutoffs
 
 
 def _nb_prepare(atoms: Atoms, r_cutoffs: Union[float, List[float]]):
@@ -86,6 +86,8 @@ if __name__ == '__main__':
     from ase_neighborlist import nb_3loop, nb_kdtree
 
     atoms = bulk('Cu', 'bcc', 3.5)
+    ijS_2 = nb_jax(atoms, 12.3)
+
     a = time.time()
     ijS_1 = nb_3loop(atoms, 12.3)
     b = time.time()
